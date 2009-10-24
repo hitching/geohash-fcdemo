@@ -1,0 +1,33 @@
+application: geohash-fcdemo
+version: prod
+runtime: python
+api_version: 1
+
+default_expiration: "7d"
+
+handlers:
+- url: /i
+  static_dir: i
+
+- url: /ff_search.json
+  script: ff_search.py 
+  
+- url: /load_sample_data
+  script: ff_search.py 
+
+- url: /.*
+  static_files: geohash-faultline-correction.htm
+  upload: geohash-faultline-correction.htm
+  
+skip_files:
+- ^(.*/)?app\.yaml
+- ^(.*/)?app\.yml
+- ^(.*/)?index\.yaml
+- ^(.*/)?index\.yml
+- ^(.*/)?#.*#
+- ^(.*/)?.*~
+- ^(.*/)?.*\.py[co]
+- ^(.*/)?.*/RCS/.*
+- ^(.*/)?\..*
+- ^(.*/)?.*\.bak$
+- ^(.*/)?_[a-zA-Z0-9]

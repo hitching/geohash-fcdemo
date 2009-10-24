@@ -1,0 +1,272 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Geohash Faultline Correction</title>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>
+<script type="text/javascript">
+
+var map, map_width, map_height, offset_x, offset_y;
+var boxes = [];
+var markers = [];
+var markers_hit, markers_miss;
+
+function initialize() {
+
+	// border of 100px around the map
+	map_width = $(window).width() - 200;
+	map_height = $(window).height() - 200;
+	$('#map').css({
+		width : map_width + 'px',
+		height : map_height + 'px',
+		top : 100,
+		left : 100
+	});
+	
+	$('#log').css({
+		top : map_height + 120,
+		width : map_width + 'px'
+	});
+	
+	// init map
+	map = new google.maps.Map(document.getElementById("map"), {
+		zoom: 3,
+		center: new google.maps.LatLng(0, 0),
+		mapTypeId: google.maps.MapTypeId.ROADMAP
+	});
+	
+	// setup listener for loading markers - wait for 2 seconds
+	google.maps.event.addListener(map, 'idle', function() {
+		load_markers();
+	});
+	
+	// listener for changing correction off / on / double
+	$('#correction').change(function() {
+		load_markers();
+	})
+}
+
+function load_markers() {
+	for (var i = 0; i < markers.length; i++) {
+		markers[i].setMap(null);
+		markers[i] = null;
+	}
+	markers = [];
+	markers_hit = 0;
+	markers_miss = 0;
+
+	$('#accuracy,#qcount').empty();
+	$('#loading').show();
+	
+	offset_x = null;
+	offset_y = null;
+
+	var _params = {
+		bbox : map.get_bounds().bbox(),
+		correction : $('#correction').val(),
+		border : 0.15,
+		limit : 1000,
+		logging : 'on'
+	};
+	
+	$.ajax({
+		url : '/ff_search.json',
+		data : _params,
+		dataType: 'jsonp',
+		success: function(data) {
+			if (data.error) {
+				alert(data.error);
+
+			} else {
+				$('#loading').hide();
+
+				// add markers
+				if (data.features && data.features.length) {
+					$.each(data.features, function(i, feature) {
+						var marker = new freeMarker(feature);
+						markers.push(marker);
+					});
+				}
+				
+				if (data.log) {
+					$('#log').empty();
+					for (var i = 0; i < boxes.length; i++) {
+						boxes[i].setMap(null);
+						boxes[i] = null;
+					}
+					boxes = [];
+
+					// display the log
+					$.each(data.log, function(i, entry) {
+						// messages are GQL statements
+						if (entry.type == 'message') {
+							$('#log').append(entry.content + '<br/>');
+						} else {
+							// other log entries define the sub-query bounding boxes
+							var path = [];
+							$.each(entry.geometry.coordinates, function(i, point) {
+								path.push(new google.maps.LatLng(point[1], point[0]));
+							});
+						
+							// draw the bounding box
+							var box = new google.maps.Polyline({
+								path : path,
+								strokeColor: "#FF0000",
+								strokeOpacity: 1.0,
+								strokeWeight: 2
+							});
+							box.setMap(map);
+
+							boxes.push(box);
+						}
+					});
+					
+					if (boxes.length > 1) $('#qcount').html('using ' + boxes.length + ' parallel sub-queries');
+				}
+			}
+		},
+		error: function (XMLHttpRequest, textStatus, errorThrown) {
+			alert(textStatus + ' ' + errorThrown);
+		}
+	});	
+}
+
+// freeMarkers are Overlays which are not constrained by the bounds of the map
+// freeMarkers falling outside of map bounds (i.e. rogue geohash results) will be displayed in the border outside of the map
+function freeMarker(feature) {
+	// Now initialize all properties.
+	this.feature_ = feature;
+
+	// We define a property to hold the image's
+	// div. We'll actually create this div
+	// upon receipt of the add() method so we'll
+	// leave it null for now.
+	this.div_ = null;
+
+	// Explicitly call setMap() on this overlay
+	this.setMap(map);
+}
+
+freeMarker.prototype = new google.maps.OverlayView();
+
+freeMarker.prototype.onAdd = function() {
+	// Note: an overlay's receipt of onAdd() indicates that
+	// the map's panes are now available for attaching
+	// the overlay to the map via the DOM.
+
+	// Create the DIV and set some basic attributes.
+	var div = document.createElement('DIV');
+	div.style.border = "0px solid none";
+	div.style.width = 21;
+	div.style.height = 34;
+	div.style.position = "absolute";
+
+	div.title = this.feature_.geometry.coordinates[1] + ',' + this.feature_.geometry.coordinates[0] + ' = ' + this.feature_.properties.geohash;
+	
+	// Create an IMG element and attach it to the DIV.
+	var img = document.createElement("img");
+	img.src = 'http://chart.apis.google.com/chart?chst=d_map_pin_letter&chld=|FF0000|000000';
+	img.style.width = 21;
+	img.style.height = 34;
+	div.appendChild(img);
+
+	// Set the overlay's div_ property to this DIV
+	this.div_ = div;
+
+	var panes = this.getPanes();
+	panes.overlayImage.appendChild(div);
+	
+	// calc the offset once per set of markers
+	if (offset_x === null) {
+		offset_x = parseInt(div.parentNode.parentNode.style.left);
+		offset_y = parseInt(div.parentNode.parentNode.style.top);
+	}
+};
+
+freeMarker.prototype.draw = function() {
+
+	var overlayProjection = this.getProjection();
+
+	// Retrieve the coordinates of this overlay
+	// and convert them to pixels coordinates.
+	// We'll use these coordinates to position the DIV.
+	var latlng = new google.maps.LatLng(this.feature_.geometry.coordinates[1], this.feature_.geometry.coordinates[0]);
+	
+	var pixel = overlayProjection.fromLatLngToDivPixel(latlng);
+
+	var div = this.div_;
+
+	var abs_x = pixel.x + offset_x;
+	var abs_y = pixel.y + offset_y;
+	
+	if (abs_x > 0 && abs_x < map_width && abs_y > 0 && abs_y < map_height) {
+		markers_hit++;
+		div.style.left = pixel.x + 'px';
+		div.style.top = pixel.y + 'px';
+	} else {
+		markers_miss++;
+
+		// move rogue marker into the border area
+		$('body').append(div);
+
+		div.style.left = Math.min(map_width + 200 - 25, Math.max(0, abs_x + 100)) + 'px';
+		div.style.top = Math.min(map_height + 200 - 38, Math.max(0, abs_y + 100)) + 'px';		
+	}
+	
+	$('#accuracy').html(Math.round(100 * markers_hit / (markers_hit + markers_miss)) + '%'); 
+};
+
+freeMarker.prototype.onRemove  = function() {
+	this.div_.parentNode.removeChild(this.div_);
+	this.div_ = null;
+};
+
+// bbox standard is west, south, east, north
+google.maps.LatLngBounds.prototype.bbox = function() {
+	return this.getSouthWest().lng().toFixed(6) + ',' + this.getSouthWest().lat().toFixed(6) + ',' + this.getNorthEast().lng().toFixed(6) + ',' + this.getNorthEast().lat().toFixed(6);
+};
+
+</script>
+<style>
+body {
+	margin: 0px;
+	position: relative;
+	background-color: #EEEEEE;
+}
+body, input {
+	font-family: Helvetica, Verdana;
+	font-size: 8pt;
+}
+#controls {
+	position: absolute;
+	top: 20px;
+	left: 100px;
+	z-index: 1000;
+	background-color: #FFFFFF;
+	border: 1px solid #DDDDDD;
+}
+#log {
+	position: absolute;
+	left: 100px;
+	height: 60px;
+	overflow: auto;
+	z-index: 1000;
+	background-color: #FFFFFF;
+	border: 1px solid #DDDDDD;
+	opacity: 0.5;
+}
+</style>
+</head>
+<body onload="initialize()">
+<table id="controls" cellspacing="10"><tr>
+	<td>Correction: <select name="correction" id="correction">
+	<option value="0">off</option>
+	<option value="1">on</option>
+	<option value="2">double</option>
+	</select></td>
+	<td><b>Accuracy:</b> <img id="loading" src="/i/ajax-loader.gif" /><span id="accuracy"></span> <span id="qcount"></span></td>
+</tr></table>
+<div id="map"></div>
+<div id="log"></div>
+</body>
+</html>
