@@ -167,7 +167,7 @@ class ffGeoSearch(object):
 		ne_geostring = geohash.Geostring((box['east'], box['north']))
 		[fault_lng, fault_lat] = (sw_geostring + ne_geostring).point()
 
-		# TODO check this
+		# wraparound fault is the international dateline
 		if wraparound: fault_lng = -180
 		
 		# crossing the latitude fault line
@@ -201,10 +201,7 @@ class ffGeoSearch(object):
 		if wraparound or cmp(box['west'], fault_lng) != cmp(box['east'], fault_lng):
 			more_boxes = []
 			
-			# TODO check this
 			fault_mix = (box['east'] - fault_lng) / span
-			#east_span = self.east if self.east > 0 else self.east + 180
-			# west_span = 180-self['west'] if self['west'] > 0 else -self['west']
 			
 			for box in boxes:
 				if fault_mix < self.border:
