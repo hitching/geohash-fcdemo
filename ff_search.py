@@ -5,6 +5,9 @@ from google.appengine.ext.webapp.util import run_wsgi_app
 from django.utils import simplejson
 import logging, os, string, urllib, random
 
+# geohash from http://mappinghacks.com/code/geohash.py.txt
+import geohash
+
 # faultline friendly geo search
 import ffGeoSearch
 
